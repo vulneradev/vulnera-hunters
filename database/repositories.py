@@ -3,7 +3,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 import uuid
 from core.logger import setup_logger
-from .models import User, Scan, Vulnerability
+from .models import User, Scan, Vulnerability, RemediationHistory, BatchJob
 from core.exceptions import DatabaseException
 
 logger = setup_logger(__name__)
@@ -99,3 +99,95 @@ class VulnerabilityRepository:
             Vulnerability.scan_id == scan_id,
             Vulnerability.severity == severity
         ).all()
+
+class RemediationRepository:
+    """Repository for remediation history and tracking."""
+    
+    @staticmethod
+    def create_history(
+        session: Session, 
+        vulnerability_id: str,
+        status: str,
+        fix_code: Optional[str] = None,
+        ai_reasoning: Optional[str] = None,
+        result_message: Optional[str] = None,
+        success: bool = False
+    ):
+        """Create remediation history record."""
+        try:
+            history = RemediationHistory(
+                id=str(uuid.uuid4())[:12],
+                vulnerability_id=vulnerability_id,
+                status=status,
+                fix_code=fix_code,
+                ai_reasoning=ai_reasoning,
+                result_message=result_message,
+                success=success,
+            )
+            session.add(history)
+            session.flush()
+            logger.info(f"Created remediation history: {history.id}")
+            return history
+        except Exception as e:
+            logger.error(f"Failed to create remediation history: {str(e)}")
+            raise DatabaseException(f"Failed to create remediation history: {str(e)}")
+    
+    @staticmethod
+    def get_by_vulnerability(session: Session, vulnerability_id: str) -> List:
+        """Get remediation history for vulnerability."""
+        return session.query(RemediationHistory).filter(
+            RemediationHistory.vulnerability_id == vulnerability_id
+        ).order_by(RemediationHistory.created_at.desc()).all()
+
+class BatchJobRepository:
+    """Repository for batch job tracking."""
+    
+    @staticmethod
+    def create(
+        session: Session,
+        user_id: str,
+        job_type: str,
+        payload: dict,
+        total_items: int = 0
+    ):
+        """Create new batch job."""
+        try:
+            job = BatchJob(
+                id=str(uuid.uuid4())[:12],
+                user_id=user_id,
+                job_type=job_type,
+                status="queued",
+                total_items=total_items,
+                payload=payload
+            )
+            session.add(job)
+            session.flush()
+            logger.info(f"Created batch job: {job.id}")
+            return job
+        except Exception as e:
+            logger.error(f"Failed to create batch job: {str(e)}")
+            raise DatabaseException(f"Failed to create batch job: {str(e)}")
+    
+    @staticmethod
+    def update_status(session: Session, job_id: str, status: str, **kwargs):
+        """Update batch job status."""
+        try:
+            update_data = {"status": status}
+            if status == "processing":
+                update_data["started_at"] = kwargs.get("started_at")
+            elif status == "completed":
+                update_data["completed_at"] = kwargs.get("completed_at")
+            
+            update_data.update(kwargs)
+            session.query(BatchJob).filter(BatchJob.id == job_id).update(update_data)
+            session.commit()
+            logger.info(f"Updated batch job {job_id} to {status}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update batch job: {str(e)}")
+            return False
+    
+    @staticmethod
+    def get_by_id(session: Session, job_id: str):
+        """Get batch job by ID."""
+        return session.query(BatchJob).filter(BatchJob.id == job_id).first()

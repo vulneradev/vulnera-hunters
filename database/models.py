@@ -20,7 +20,6 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationships
     scans = relationship("Scan", back_populates="user", cascade="all, delete-orphan")
 
 class Scan(Base):
@@ -43,12 +42,11 @@ class Scan(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationships
     user = relationship("User", back_populates="scans")
     vulnerabilities = relationship("Vulnerability", back_populates="scan", cascade="all, delete-orphan")
 
 class Vulnerability(Base):
-    """Detected vulnerability record."""
+    """Detected vulnerability record with remediation tracking."""
     __tablename__ = "vulnerabilities"
     
     id = Column(String(36), primary_key=True)
@@ -63,11 +61,37 @@ class Vulnerability(Base):
     cvss_score = Column(Float, nullable=True)
     references = Column(JSON, default=[])
     metadata = Column(JSON, default={})
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
-    # Relationships
+    remediation_status = Column(String(50), default="pending", index=True)  # pending, in_progress, fixed, failed
+    auto_fix_available = Column(Boolean, default=False)
+    auto_fix_code = Column(Text, nullable=True)
+    fix_confidence = Column(Float, default=0.0)
+    fix_applied = Column(Boolean, default=False)
+    applied_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
     scan = relationship("Scan", back_populates="vulnerabilities")
     simulations = relationship("AttackSimulation", back_populates="vulnerability", cascade="all, delete-orphan")
+    remediations = relationship("RemediationHistory", back_populates="vulnerability", cascade="all, delete-orphan")
+
+class RemediationHistory(Base):
+    """Track remediation attempts and history."""
+    __tablename__ = "remediation_history"
+    
+    id = Column(String(36), primary_key=True)
+    vulnerability_id = Column(String(36), ForeignKey("vulnerabilities.id"), nullable=False, index=True)
+    status = Column(String(50), nullable=False)  # pending, in_progress, completed, failed
+    attempt_number = Column(Integer, default=1)
+    fix_code = Column(Text, nullable=True)
+    ai_reasoning = Column(Text, nullable=True)
+    result_message = Column(Text, nullable=True)
+    success = Column(Boolean, default=False)
+    applied_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    vulnerability = relationship("Vulnerability", back_populates="remediations")
 
 class AttackSimulation(Base):
     """Attack simulation result."""
@@ -82,5 +106,22 @@ class AttackSimulation(Base):
     impact_score = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
-    # Relationships
     vulnerability = relationship("Vulnerability", back_populates="simulations")
+
+class BatchJob(Base):
+    """Batch processing job tracking."""
+    __tablename__ = "batch_jobs"
+    
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    job_type = Column(String(100), nullable=False)  # scan, remediate, simulate
+    status = Column(String(50), default="queued", index=True)  # queued, processing, completed, failed
+    total_items = Column(Integer, default=0)
+    processed_items = Column(Integer, default=0)
+    failed_items = Column(Integer, default=0)
+    payload = Column(JSON, nullable=False)
+    result = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
